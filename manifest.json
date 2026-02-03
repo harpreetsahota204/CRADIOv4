@@ -13,7 +13,7 @@
                 "embeddings",
                 "heatmap"
             ],
-            "date_added": "2025-06-18",
+            "date_added": "2026-02-03",
             "requirements": {
                 "packages": ["torch", "torchvision"],
                 "cpu": {
@@ -35,7 +35,7 @@
                 "embeddings",
                 "heatmap"
             ],
-            "date_added": "2025-06-18",
+            "date_added": "2026-02-03",
             "requirements": {
                 "packages": ["torch", "torchvision"],
                 "cpu": {

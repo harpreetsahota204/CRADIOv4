@@ -63,7 +63,7 @@ class TorchRadioModelConfig(fout.TorchImageModelConfig):
     def __init__(self, d):
         super().__init__(d)
 
-        self.model_version = self.parse_string(d, "model_version", default="c-radio_v3-h")
+        self.model_version = self.parse_string(d, "model_version", default="c-radio_v4-h")
         self.model_path = self.parse_string(d, "model_path")
         self.output_type = self.parse_string(d, "output_type", default="summary")
         self.feature_format = self.parse_string(d, "feature_format", default="NCHW")
@@ -383,7 +383,7 @@ class RadioOutputProcessor(fout.OutputProcessor):
         return [output[i].detach().cpu().numpy() for i in range(batch_size)]
 
 class SpatialHeatmapOutputProcessor(fout.OutputProcessor):
-    """Improved spatial heatmap processor for RADIO with NCHW features and smoothing."""
+    """Spatial heatmap processor for RADIO using PCA visualization (as per C-RADIOv4 paper)."""
 
     def __init__(self, apply_smoothing=True, smoothing_sigma=1.0, **kwargs):
         super().__init__(**kwargs)
@@ -407,17 +407,19 @@ class SpatialHeatmapOutputProcessor(fout.OutputProcessor):
             spatial = output[i].detach().cpu().numpy()  # [C, H, W]
             C, H, W = spatial.shape
 
-            # Flatten spatial grid to [H*W, C] for PCA
+            # Handle NaN/Inf values (C-RADIOv4 paper notes models can have noise patches)
+            spatial = np.nan_to_num(spatial, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            # Clip outliers using percentiles (handles extreme noise patches)
+            p_low, p_high = np.percentile(spatial, [1, 99])
+            spatial = np.clip(spatial, p_low, p_high)
+
+            # Flatten spatial grid to [H*W, C] for PCA (as used in paper figures)
             reshaped = spatial.reshape(C, -1).T  # [H*W, C]
 
-            try:
-                # PCA to reduce channels to 1D attention per pixel
-                pca = PCA(n_components=1)
-                attention_1d = pca.fit_transform(reshaped).reshape(H, W)
-            except Exception as e:
-                # Fallback to simple mean over channels
-                warnings.warn(f"PCA failed on image {i}: {e}. Falling back to channel mean.")
-                attention_1d = spatial.mean(axis=0)  # [H, W]
+            # PCA to reduce channels to 1D attention per pixel
+            pca = PCA(n_components=1)
+            attention_1d = pca.fit_transform(reshaped).reshape(H, W)
 
             # Optional smoothing
             if self.apply_smoothing:
