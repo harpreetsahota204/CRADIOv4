@@ -1,0 +1,50 @@
+{
+    "name": "C-RADIOv4",
+    "url": "https://github.com/harpreetsahota204/CRADIOv4",
+    "models": [
+        {
+            "base_name": "nvidia/C-RADIOv4-H",
+            "base_filename":"C-RADIOv4-H",
+            "author": "NVIDIA",
+            "license": "NVIDIA Open Model License Agreement",
+            "source": "https://github.com/NVlabs/RADIO",
+            "description": "This model performs visual feature extraction. For instance, RADIO generates image embeddings that can be used by a downstream model to classify images.",
+            "tags": [
+                "embeddings",
+                "heatmap"
+            ],
+            "date_added": "2025-06-18",
+            "requirements": {
+                "packages": ["torch", "torchvision"],
+                "cpu": {
+                    "support": true
+                },
+                "gpu": {
+                    "support": true
+                }
+            }
+        },
+        {
+            "base_name": "nvidia/C-RADIOv4-SO400M",
+            "base_filename":"C-RADIOv4-SO400M",
+            "author": "NVIDIA",
+            "license": "NVIDIA Open Model License Agreement",
+            "source": "https://github.com/NVlabs/RADIO/",
+            "description": "This model performs visual feature extraction. For instance, RADIO generates image embeddings that can be used by a downstream model to classify images.",
+            "tags": [
+                "embeddings",
+                "heatmap"
+            ],
+            "date_added": "2025-06-18",
+            "requirements": {
+                "packages": ["torch", "torchvision"],
+                "cpu": {
+                    "support": true
+                },
+                "gpu": {
+                    "support": true
+                }
+            }
+        }
+    ]
+}
