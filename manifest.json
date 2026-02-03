@@ -7,15 +7,15 @@
             "base_filename":"c-radio_v4-h",
             "author": "NVIDIA",
             "license": "NVIDIA Open Model License Agreement",
-            "source": "https://github.com/NVlabs/RADIO",
-            "description": "This model performs visual feature extraction. For instance, RADIO generates image embeddings that can be used by a downstream model to classify images.",
+            "source": "https://huggingface.co/nvidia/C-RADIOv4-H",
+            "description": "C-RADIOv4-H (631M params) - Visual feature extraction model using multi-teacher distillation from SigLIP2, DINOv3, and SAM3. Generates image embeddings and spatial attention features.",
             "tags": [
                 "embeddings",
                 "heatmap"
             ],
             "date_added": "2026-02-03",
             "requirements": {
-                "packages": ["torch", "torchvision"],
+                "packages": ["torch", "torchvision", "transformers"],
                 "cpu": {
                     "support": true
                 },
@@ -29,15 +29,15 @@
             "base_filename":"c-radio_v4-so400m",
             "author": "NVIDIA",
             "license": "NVIDIA Open Model License Agreement",
-            "source": "https://github.com/NVlabs/RADIO/",
-            "description": "This model performs visual feature extraction. For instance, RADIO generates image embeddings that can be used by a downstream model to classify images.",
+            "source": "https://huggingface.co/nvidia/C-RADIOv4-SO400M",
+            "description": "C-RADIOv4-SO400M (412M params) - Efficient visual feature extraction model. Competitive with ViT-H at lower computational cost.",
             "tags": [
                 "embeddings",
                 "heatmap"
             ],
             "date_added": "2026-02-03",
             "requirements": {
-                "packages": ["torch", "torchvision"],
+                "packages": ["torch", "torchvision", "transformers"],
                 "cpu": {
                     "support": true
                 },

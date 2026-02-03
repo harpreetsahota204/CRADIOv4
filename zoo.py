@@ -3,12 +3,10 @@ import warnings
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from PIL import Image
 from scipy.ndimage import gaussian_filter
 from skimage.transform import resize
 from sklearn.decomposition import PCA
-from torchvision.transforms.functional import pil_to_tensor
 
 import fiftyone.core.labels as fol
 import fiftyone.core.models as fom
@@ -46,34 +44,30 @@ class RadioGetItem(GetItem):
         image = Image.open(filepath).convert("RGB")
         return image
 
+
 class TorchRadioModelConfig(fout.TorchImageModelConfig):
     """Configuration for running a :class:`TorchRadioModel`.
 
-    See :class:`fiftyone.utils.torch.TorchImageModelConfig` for additional
-    arguments.
-
     Args:
-        model_version: the RADIO model version to load
-        model_path: path to the saved model file on disk
-        output_type: what to return - "summary", "spatial", or "both"
-        feature_format: "NCHW" or "NLC" for spatial features format
-        use_external_preprocessor: whether to use external preprocessing
+        hf_repo: Hugging Face repository name (e.g., "nvidia/C-RADIOv4-H")
+        output_type: what to return - "summary" or "spatial"
+        use_mixed_precision: whether to use bfloat16 mixed precision
+        apply_smoothing: whether to apply Gaussian smoothing to heatmaps
+        smoothing_sigma: sigma for Gaussian smoothing
     """
 
     def __init__(self, d):
         super().__init__(d)
 
-        self.model_version = self.parse_string(d, "model_version", default="c-radio_v4-h")
-        self.model_path = self.parse_string(d, "model_path")
+        self.hf_repo = self.parse_string(d, "hf_repo", default="nvidia/C-RADIOv4-H")
         self.output_type = self.parse_string(d, "output_type", default="summary")
-        self.feature_format = self.parse_string(d, "feature_format", default="NCHW")
-        self.use_external_preprocessor = self.parse_bool(d, "use_external_preprocessor", default=False)
         self.use_mixed_precision = self.parse_bool(d, "use_mixed_precision", default=True)
         self.apply_smoothing = self.parse_bool(d, "apply_smoothing", default=True)
         self.smoothing_sigma = self.parse_number(d, "smoothing_sigma", default=1.51)
 
+
 class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
-    """Wrapper for RADIO models from https://github.com/NVlabs/RADIO.
+    """Wrapper for C-RADIOv4 models from Hugging Face.
 
     This model supports efficient batching via FiftyOne's SupportsGetItem pattern.
     Use with dataset.apply_model() for optimized batch processing.
@@ -91,12 +85,8 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         # REQUIRED: Set preprocess flag (GetItem handles preprocessing)
         self._preprocess = False
         
-        # Load the RADIO model and setup preprocessor
-        self._radio_model = self._load_radio_model()
-        if config.use_external_preprocessor:
-            self._conditioner = self._radio_model.make_preprocessor_external()
-        else:
-            self._conditioner = None
+        # Load the RADIO model and image processor from Hugging Face
+        self._radio_model, self._image_processor = self._load_radio_model()
         
         # Check and cache mixed precision support
         self._mixed_precision_supported = self._check_mixed_precision_support()
@@ -201,7 +191,6 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
             return False
             
         try:
-            # Check GPU capability
             if torch.cuda.is_available():
                 device_capability = torch.cuda.get_device_capability(self._device)
                 # bfloat16 is supported on Ampere (8.0+) and newer architectures
@@ -211,82 +200,27 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
             logger.warning(f"Could not determine mixed precision support: {e}")
             return False
 
-    def _load_model(self, config):
-        """Load the RADIO model from disk."""
-        import os
-        
-        if not os.path.exists(config.model_path):
-            raise FileNotFoundError(f"Model file not found: {config.model_path}")
-        
-        logger.info(f"Loading RADIO model from {config.model_path}")
-        
-        # Load the saved model data
-        checkpoint = torch.load(config.model_path, map_location='cpu')  # Load to CPU first
-        model_version = checkpoint['model_version']
-        
-        # First load the model architecture from torch hub
-        model = torch.hub.load(
-            'NVlabs/RADIO', 
-            'radio_model', 
-            version=model_version, 
-            progress=False,  # Don't download again
-            skip_validation=True
-        )
-        
-        # Load the saved state dict
-        model.load_state_dict(checkpoint['model_state_dict'])
-        
-        return model
-
     def _load_radio_model(self):
-        """Load and setup the RADIO model."""
-        model = self._load_model(self.config)
-        # Ensure the model is on the correct device and in eval mode
+        """Load the RADIO model from Hugging Face."""
+        from transformers import AutoModel, CLIPImageProcessor
+        
+        hf_repo = self.config.hf_repo
+        logger.info(f"Loading C-RADIOv4 model from Hugging Face: {hf_repo}")
+        
+        # Load image processor and model
+        image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
+        model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
+        
+        # Move to device and set to eval mode
         model = model.to(self._device)
         model.eval()
-        return model
-
-    def _preprocess_image(self, img):
-        """Preprocess a single image for RADIO model.
         
-        Args:
-            img: PIL Image, numpy array, or torch tensor
-            
-        Returns:
-            preprocessed tensor ready for RADIO model
-        """
-        # Convert to PIL if needed
-        if isinstance(img, np.ndarray):
-            img = Image.fromarray(img)
-        elif isinstance(img, torch.Tensor):
-            # Convert tensor back to PIL for consistent preprocessing
-            if img.dim() == 3:  # CHW
-                img = img.permute(1, 2, 0)  # HWC
-            img = img.cpu().numpy()
-            if img.dtype != np.uint8:
-                img = (img * 255).astype(np.uint8)
-            img = Image.fromarray(img)
-        
-        if not isinstance(img, Image.Image):
-            raise ValueError(f"Unsupported image type: {type(img)}")
-        
-        # Ensure RGB
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        
-        # Convert to tensor and normalize to [0, 1]
-        # Make sure to put tensor on the correct device from the start
-        x = pil_to_tensor(img).to(dtype=torch.float32)
-        x.div_(255.0)  # RADIO expects values between 0 and 1
-        x = x.to(self._device)  # Move to device after preprocessing
-        
-        return x
+        return model, image_processor
 
     def _predict_all(self, imgs):
         """Process a batch of images.
         
-        Overrides TorchImageModel._predict_all() to handle RADIO's 
-        dynamic resolution requirements and variable-size inputs.
+        Overrides TorchImageModel._predict_all() to handle RADIO model.
         
         Args:
             imgs: List of PIL Images from GetItem/collate_fn
@@ -297,38 +231,27 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         # Store original image sizes for output processing
         original_sizes = [img.size for img in imgs]  # PIL Image.size is (width, height)
         
-        # Preprocess and run inference on each image
-        # (RADIO requires per-image resolution handling)
+        # Process each image individually (CLIPImageProcessor handles resizing)
         summaries = []
         spatial_features_list = []
         
         for img in imgs:
-            # Preprocess: PIL -> tensor on device
-            x = self._preprocess_image(img)
-            
-            # Add batch dimension
-            if x.dim() == 3:
-                x = x.unsqueeze(0)
-            
-            # Resize to nearest RADIO-supported resolution
-            nearest_res = self._radio_model.get_nearest_supported_resolution(*x.shape[-2:])
-            x = F.interpolate(x, nearest_res, mode='bilinear', align_corners=False)
-            
-            # Set optimal window size for E-RADIO models
-            if "e-radio" in self.config.model_version:
-                self._radio_model.model.set_optimal_window_size(x.shape[2:])
-            
-            # Apply external conditioning if configured
-            if self._conditioner is not None:
-                x = self._conditioner(x)
+            # Preprocess using CLIPImageProcessor
+            pixel_values = self._image_processor(
+                images=img, 
+                return_tensors='pt', 
+                do_resize=True
+            ).pixel_values
+            pixel_values = pixel_values.to(self._device)
             
             # Forward pass with optional mixed precision
             if self.config.use_mixed_precision and self._mixed_precision_supported and self._using_gpu:
                 with torch.autocast('cuda', dtype=torch.bfloat16):
-                    summary, spatial = self._radio_model(x, feature_fmt=self.config.feature_format)
+                    with torch.no_grad():
+                        summary, spatial = self._radio_model(pixel_values)
             else:
                 with torch.no_grad():
-                    summary, spatial = self._radio_model(x, feature_fmt=self.config.feature_format)
+                    summary, spatial = self._radio_model(pixel_values)
             
             summaries.append(summary)
             spatial_features_list.append(spatial)
@@ -361,6 +284,7 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         else:
             raise ValueError(f"Unknown output_type: {self.config.output_type}")
 
+
 class RadioOutputProcessor(fout.OutputProcessor):
     """Output processor for RADIO models that handles embeddings output."""
     
@@ -382,6 +306,7 @@ class RadioOutputProcessor(fout.OutputProcessor):
         batch_size = output.shape[0]
         return [output[i].detach().cpu().numpy() for i in range(batch_size)]
 
+
 class SpatialHeatmapOutputProcessor(fout.OutputProcessor):
     """Spatial heatmap processor for RADIO using PCA visualization (as per C-RADIOv4 paper)."""
 
@@ -393,7 +318,7 @@ class SpatialHeatmapOutputProcessor(fout.OutputProcessor):
     def __call__(self, output, frame_sizes, confidence_thresh=None):
         """
         Args:
-            output: torch.Tensor of shape [B, C, H, W]
+            output: torch.Tensor of shape [B, C, H, W] or [B, N, C] (NLC format)
             frame_sizes: list of (width, height) for each image
             confidence_thresh: unused
 
@@ -404,7 +329,21 @@ class SpatialHeatmapOutputProcessor(fout.OutputProcessor):
         heatmaps = []
 
         for i in range(batch_size):
-            spatial = output[i].detach().cpu().numpy()  # [C, H, W]
+            spatial = output[i].detach().cpu().numpy()
+            
+            # Handle different feature formats
+            if spatial.ndim == 2:  # [N, C] - NLC format without batch
+                # Assume square spatial grid
+                N, C = spatial.shape
+                H = W = int(np.sqrt(N))
+                if H * W != N:
+                    # Non-square, find closest factors
+                    for h in range(int(np.sqrt(N)), 0, -1):
+                        if N % h == 0:
+                            H, W = h, N // h
+                            break
+                spatial = spatial.reshape(H, W, C).transpose(2, 0, 1)  # [C, H, W]
+            
             C, H, W = spatial.shape
 
             # Handle NaN/Inf values (C-RADIOv4 paper notes models can have noise patches)

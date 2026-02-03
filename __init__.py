@@ -1,23 +1,22 @@
 import os
-import torch
 import logging
 from fiftyone.operators import types
 from .zoo import TorchRadioModelConfig, TorchRadioModel, RadioOutputProcessor, SpatialHeatmapOutputProcessor
 
 logger = logging.getLogger(__name__)
 
-# Model variants and their configurations
+# Model variants and their Hugging Face repository names
 MODEL_VARIANTS = {
     "nv_labs/c-radio_v4-h": {
-        "model_version": "c-radio_v4-h",
+        "hf_repo": "nvidia/C-RADIOv4-H",
     },
     "nv_labs/c-radio_v4-so400m": {
-        "model_version": "c-radio_v4-so400m",
+        "hf_repo": "nvidia/C-RADIOv4-SO400M",
     },
 }
 
 def download_model(model_name, model_path):
-    """Downloads the model.
+    """Downloads the model from Hugging Face.
     
     Args:
         model_name: the name of the model to download, as declared by the
@@ -29,46 +28,36 @@ def download_model(model_name, model_path):
         raise ValueError(f"Unsupported model name '{model_name}'. "
                         f"Supported models: {list(MODEL_VARIANTS.keys())}")
     
-    import os
-    import torch
+    from transformers import AutoModel, CLIPImageProcessor
     
     model_info = MODEL_VARIANTS[model_name]
-    model_version = model_info["model_version"]
+    hf_repo = model_info["hf_repo"]
     
     # Ensure the directory exists
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     
-    logger.info(f"Downloading RADIO model {model_version}...")
+    logger.info(f"Downloading C-RADIOv4 model from Hugging Face: {hf_repo}")
     
-    # Load model from torch hub and save to disk
-    model = torch.hub.load(
-        'NVlabs/RADIO', 
-        'radio_model', 
-        version=model_version, 
-        progress=True, 
-        skip_validation=True
-    )
+    # Download model and processor from Hugging Face
+    # This caches them in the HF cache directory
+    image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
+    model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
     
-    # Save the model state dict to the specified path
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'model_version': model_version,
-        'model_config': getattr(model, 'config', None),
-        'model_class': model.__class__.__name__,
-    }, model_path)
+    # Write a marker file to indicate the model is downloaded
+    # The actual model weights are cached by Hugging Face
+    with open(model_path, 'w') as f:
+        f.write(f"hf_repo={hf_repo}\n")
     
-    logger.info(f"RADIO model {model_version} saved to {model_path}")
+    logger.info(f"C-RADIOv4 model {hf_repo} downloaded and cached")
 
 
 def load_model(
     model_name, 
     model_path, 
     output_type="summary",
-    feature_format="NCHW",
-    use_external_preprocessor=False,
     **kwargs
 ):
-    """Loads the model.
+    """Loads the model from Hugging Face.
     
     Args:
         model_name: the name of the model to load, as declared by the
@@ -77,8 +66,6 @@ def load_model(
             downloaded, as declared by the ``base_filename`` field of the
             manifest
         output_type: what to return - "summary" or "spatial"
-        feature_format: "NCHW" or "NLC" for spatial features format
-        use_external_preprocessor: whether to use external preprocessing
         **kwargs: additional keyword arguments
         
     Returns:
@@ -89,14 +76,11 @@ def load_model(
                         f"Supported models: {list(MODEL_VARIANTS.keys())}")
     
     model_info = MODEL_VARIANTS[model_name]
-    model_version = model_info["model_version"]
+    hf_repo = model_info["hf_repo"]
     
     config_dict = {
-        "model_version": model_version,
-        "model_path": model_path,  # Add the model path for loading from disk
+        "hf_repo": hf_repo,
         "output_type": output_type,
-        "feature_format": feature_format,
-        "use_external_preprocessor": use_external_preprocessor,
         "raw_inputs": True,  # We handle preprocessing ourselves
         **kwargs
     }
@@ -145,21 +129,6 @@ def resolve_input(model_name, ctx):
         label="Output Type",
         description="Type of features to extract: summary (global embeddings) or spatial (heatmaps)"
     )
-    
-    inputs.enum(
-        "feature_format", 
-        ["NCHW", "NLC"],
-        default="NCHW",
-        label="Feature Format",
-        description="Format for spatial features: NCHW (computer vision) or NLC (transformer)"
-    )
-    
-    inputs.bool(
-        "use_external_preprocessor",
-        default=False,
-        label="Use External Preprocessor",
-        description="Whether to use external preprocessing (advanced option)"
-    )
 
     inputs.bool(
         "apply_smoothing",
@@ -170,9 +139,16 @@ def resolve_input(model_name, ctx):
 
     inputs.float(
         "smoothing_sigma",
-        default=1.0,
+        default=1.51,
         label="Smoothing Sigma",
         description="The standard deviation (sigma) for Gaussian blur applied to heatmaps"
+    )
+
+    inputs.bool(
+        "use_mixed_precision",
+        default=True,
+        label="Use Mixed Precision",
+        description="Use bfloat16 mixed precision for faster inference (requires Ampere+ GPU)"
     )
 
     return types.Property(inputs)
