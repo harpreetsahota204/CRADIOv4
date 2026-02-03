@@ -8,10 +8,10 @@ logger = logging.getLogger(__name__)
 
 # Model variants and their configurations
 MODEL_VARIANTS = {
-    "nv_labs/C-RADIOv4-H": {
+    "nv_labs/c-radio_v4-h": {
         "model_version": "c-radio_v4-h",
     },
-    "nv_labs/C-RADIOv4-SO400M": {
+    "nv_labs/-radio_v4-so400m": {
         "model_version": "c-radio_v4-so400m",
     },
 }
