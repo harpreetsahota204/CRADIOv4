@@ -78,40 +78,30 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
     def __init__(self, config):
         super().__init__(config)
         
-        # REQUIRED for SupportsGetItem: Initialize base class
+        # REQUIRED for SupportsGetItem
         SupportsGetItem.__init__(self)
-        
-        # REQUIRED: Set preprocess flag (GetItem handles preprocessing)
         self._preprocess = False
         
-        # The model is loaded in _load_model(), but we need to also load the image processor
-        self._image_processor = self._load_image_processor()
-        
-        # Store reference to the radio model (already loaded by parent class as self._model)
+        # Re-move model to device to ensure all nested buffers (like input_conditioner) are on GPU
+        self._model = self._model.to(self._device)
         self._radio_model = self._model
         
-        # Check and cache mixed precision support
+        # Check mixed precision support
         self._mixed_precision_supported = self._check_mixed_precision_support()
     
     def _load_model(self, config):
-        """Override parent's _load_model to load from Hugging Face.
+        """Load model and image processor from Hugging Face.
         
-        This is called by TorchImageModel.__init__().
+        Called by TorchImageModel.__init__(). We also load the image processor here.
         """
-        from transformers import AutoModel
+        from transformers import AutoModel, CLIPImageProcessor
         
         hf_repo = config.hf_repo
         logger.info(f"Loading C-RADIOv4 model from Hugging Face: {hf_repo}")
         
+        self._image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
         model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
         return model
-    
-    def _load_image_processor(self):
-        """Load the CLIPImageProcessor for preprocessing."""
-        from transformers import CLIPImageProcessor
-        
-        hf_repo = self.config.hf_repo
-        return CLIPImageProcessor.from_pretrained(hf_repo)
 
     # ============ FROM Model BASE CLASS ============
     
