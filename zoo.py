@@ -9,7 +9,6 @@ from skimage.transform import resize
 from sklearn.decomposition import PCA
 
 import fiftyone.core.labels as fol
-import fiftyone.core.models as fom
 from fiftyone.core.models import SupportsGetItem, TorchModelMixin
 import fiftyone.utils.torch as fout
 from fiftyone.utils.torch import GetItem
@@ -85,11 +84,34 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         # REQUIRED: Set preprocess flag (GetItem handles preprocessing)
         self._preprocess = False
         
-        # Load the RADIO model and image processor from Hugging Face
-        self._radio_model, self._image_processor = self._load_radio_model()
+        # The model is loaded in _load_model(), but we need to also load the image processor
+        self._image_processor = self._load_image_processor()
+        
+        # Store reference to the radio model (already loaded by parent class as self._model)
+        self._radio_model = self._model
         
         # Check and cache mixed precision support
         self._mixed_precision_supported = self._check_mixed_precision_support()
+    
+    def _load_model(self, config):
+        """Override parent's _load_model to load from Hugging Face.
+        
+        This is called by TorchImageModel.__init__().
+        """
+        from transformers import AutoModel
+        
+        hf_repo = config.hf_repo
+        logger.info(f"Loading C-RADIOv4 model from Hugging Face: {hf_repo}")
+        
+        model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
+        return model
+    
+    def _load_image_processor(self):
+        """Load the CLIPImageProcessor for preprocessing."""
+        from transformers import CLIPImageProcessor
+        
+        hf_repo = self.config.hf_repo
+        return CLIPImageProcessor.from_pretrained(hf_repo)
 
     # ============ FROM Model BASE CLASS ============
     
@@ -199,23 +221,6 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         except Exception as e:
             logger.warning(f"Could not determine mixed precision support: {e}")
             return False
-
-    def _load_radio_model(self):
-        """Load the RADIO model from Hugging Face."""
-        from transformers import AutoModel, CLIPImageProcessor
-        
-        hf_repo = self.config.hf_repo
-        logger.info(f"Loading C-RADIOv4 model from Hugging Face: {hf_repo}")
-        
-        # Load image processor and model
-        image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
-        model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
-        
-        # Move to device and set to eval mode
-        model = model.to(self._device)
-        model.eval()
-        
-        return model, image_processor
 
     def _predict_all(self, imgs):
         """Process a batch of images.

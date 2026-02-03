@@ -40,8 +40,8 @@ def download_model(model_name, model_path):
     
     # Download model and processor from Hugging Face
     # This caches them in the HF cache directory
-    image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
-    model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
+    CLIPImageProcessor.from_pretrained(hf_repo)
+    AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
     
     # Write a marker file to indicate the model is downloaded
     # The actual model weights are cached by Hugging Face
