@@ -192,7 +192,7 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         elif isinstance(arg, np.ndarray):
             arg = Image.fromarray(arg)
         
-        results = self.predict_all([arg])
+        results = self._predict_all([arg])
         return results[0]
             
     def _check_mixed_precision_support(self):
@@ -282,13 +282,16 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         
         return x
 
-    def predict_all(self, imgs):
+    def _predict_all(self, imgs):
         """Process a batch of images.
         
-        This is the core batching method called by FiftyOne's apply_model().
+        Overrides TorchImageModel._predict_all() to handle RADIO's 
+        dynamic resolution requirements and variable-size inputs.
+        
+        This is called by FiftyOne's embed_all() and apply_model() methods.
         
         Args:
-            imgs: List of PIL Images from GetItem transform
+            imgs: List of PIL Images from GetItem/collate_fn
             
         Returns:
             List of predictions (same length as input batch)
