@@ -3,8 +3,8 @@
     "url": "https://github.com/harpreetsahota204/CRADIOv4",
     "models": [
         {
-            "base_name": "nvidia/C-RADIOv4-H",
-            "base_filename":"C-RADIOv4-H",
+            "base_name": "nv_labs/c-radio_v4-h",
+            "base_filename":"c-radio_v4-h",
             "author": "NVIDIA",
             "license": "NVIDIA Open Model License Agreement",
             "source": "https://github.com/NVlabs/RADIO",
@@ -25,8 +25,8 @@
             }
         },
         {
-            "base_name": "nvidia/C-RADIOv4-SO400M",
-            "base_filename":"C-RADIOv4-SO400M",
+            "base_name": "nv_labs/c-radio_v4-so400m",
+            "base_filename":"c-radio_v4-so400m",
             "author": "NVIDIA",
             "license": "NVIDIA Open Model License Agreement",
             "source": "https://github.com/NVlabs/RADIO/",
