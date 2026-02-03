@@ -288,127 +288,78 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         Overrides TorchImageModel._predict_all() to handle RADIO's 
         dynamic resolution requirements and variable-size inputs.
         
-        This is called by FiftyOne's embed_all() and apply_model() methods.
-        
         Args:
             imgs: List of PIL Images from GetItem/collate_fn
             
         Returns:
-            List of predictions (same length as input batch)
-            Each prediction is either a numpy array (embeddings) or 
-            fol.Heatmap depending on output_processor configuration.
+            List of predictions (embeddings or heatmaps depending on config)
         """
-        # Debug: check input types and devices
-        logger.debug(f"Input imgs type: {type(imgs)}, length: {len(imgs) if hasattr(imgs, '__len__') else 'unknown'}")
-        if len(imgs) > 0:
-            logger.debug(f"First img type: {type(imgs[0])}")
-            if isinstance(imgs[0], torch.Tensor):
-                logger.debug(f"First img device: {imgs[0].device}")
+        # Store original image sizes for output processing
+        original_sizes = [img.size for img in imgs]  # PIL Image.size is (width, height)
         
-        # Store original image sizes for output processing (before any transforms)
-        original_sizes = []
-        for img in imgs:
-            if isinstance(img, Image.Image):
-                original_sizes.append(img.size)  # (width, height)
-            elif isinstance(img, np.ndarray):
-                original_sizes.append((img.shape[1], img.shape[0]))  # (width, height)
-            elif isinstance(img, torch.Tensor):
-                if img.dim() == 3:  # CHW
-                    original_sizes.append((img.shape[2], img.shape[1]))  # (width, height)
-                else:
-                    original_sizes.append((img.shape[-1], img.shape[-2]))
-            else:
-                original_sizes.append((224, 224))  # Fallback
-        
-        # Apply our custom preprocessing (handles device placement)
-        preprocessed_imgs = [self._preprocess_image(img) for img in imgs]
-
-        # Debug: check preprocessed images
-        logger.debug(f"After preprocessing, first img device: {preprocessed_imgs[0].device if isinstance(preprocessed_imgs[0], torch.Tensor) else 'not tensor'}")
-
-        # Process each image individually due to dynamic resizing
-        # (RADIO requires resolution-specific handling)
+        # Preprocess and run inference on each image
+        # (RADIO requires per-image resolution handling)
         summaries = []
         spatial_features_list = []
         
-        for i, img in enumerate(preprocessed_imgs):
-            try:
-                # Ensure tensor is on the correct device
-                if isinstance(img, torch.Tensor):
-                    img = img.to(self._device)
-                    logger.debug(f"Image {i} device after .to(): {img.device}")
-                
-                # Add batch dimension if needed
-                if img.dim() == 3:
-                    img = img.unsqueeze(0)
-                
-                # Get nearest supported resolution and resize
-                nearest_res = self._radio_model.get_nearest_supported_resolution(*img.shape[-2:])
-                img_resized = F.interpolate(img, nearest_res, mode='bilinear', align_corners=False)
-                
-                logger.debug(f"Image {i} resized device: {img_resized.device}")
-                
-                # Set optimal window size for E-RADIO models
-                if "e-radio" in self.config.model_version:
-                    self._radio_model.model.set_optimal_window_size(img_resized.shape[2:])
-                
-                # Apply external conditioning if using external preprocessor
-                if self._conditioner is not None:
-                    img_resized = self._conditioner(img_resized)
-                    logger.debug(f"Image {i} after conditioning device: {img_resized.device}")
-                
-                # Forward pass with optional mixed precision
-                use_mixed_precision = (
-                    getattr(self.config, 'use_mixed_precision', False) and 
-                    getattr(self, '_mixed_precision_supported', False) and 
-                    self._using_gpu
-                )
-                
-                if use_mixed_precision:
-                    with torch.autocast('cuda', dtype=torch.bfloat16):
-                        summary, spatial = self._radio_model(img_resized, feature_fmt=self.config.feature_format)
-                else:
-                    with torch.no_grad():
-                        summary, spatial = self._radio_model(img_resized, feature_fmt=self.config.feature_format)
-                
-                logger.debug(f"Image {i} output devices - summary: {summary.device}, spatial: {spatial.device}")
-                
-                summaries.append(summary)
-                spatial_features_list.append(spatial)
-                
-            except Exception as e:
-                logger.error(f"Error processing image {i}: {e}")
-                logger.error(f"Image {i} shape: {img.shape if hasattr(img, 'shape') else 'no shape'}")
-                logger.error(f"Image {i} device: {img.device if isinstance(img, torch.Tensor) else 'not tensor'}")
-                logger.error(f"Model device: {next(self._radio_model.parameters()).device}")
-                raise
-        
-        # Stack results
-        try:
-            batch_summary = torch.cat(summaries, dim=0)
-            batch_spatial = torch.cat(spatial_features_list, dim=0)
-        except Exception as e:
-            logger.error(f"Error stacking results: {e}")
-            logger.error(f"Summary devices: {[s.device for s in summaries]}")
-            logger.error(f"Spatial devices: {[s.device for s in spatial_features_list]}")
-            raise
+        for img in imgs:
+            # Preprocess: PIL -> tensor on device
+            x = self._preprocess_image(img)
+            
+            # Add batch dimension
+            if x.dim() == 3:
+                x = x.unsqueeze(0)
+            
+            # Resize to nearest RADIO-supported resolution
+            nearest_res = self._radio_model.get_nearest_supported_resolution(*x.shape[-2:])
+            x = F.interpolate(x, nearest_res, mode='bilinear', align_corners=False)
+            
+            # Set optimal window size for E-RADIO models
+            if "e-radio" in self.config.model_version:
+                self._radio_model.model.set_optimal_window_size(x.shape[2:])
+            
+            # Apply external conditioning if configured
+            if self._conditioner is not None:
+                x = self._conditioner(x)
+            
+            # Forward pass with optional mixed precision
+            if self.config.use_mixed_precision and self._mixed_precision_supported and self._using_gpu:
+                with torch.autocast('cuda', dtype=torch.bfloat16):
+                    summary, spatial = self._radio_model(x, feature_fmt=self.config.feature_format)
+            else:
+                with torch.no_grad():
+                    summary, spatial = self._radio_model(x, feature_fmt=self.config.feature_format)
+            
+            summaries.append(summary)
+            spatial_features_list.append(spatial)
         
         # Return based on output type
         if self.config.output_type == "summary":
-            output = batch_summary
+            # Summaries are fixed-size 1D vectors, can be stacked
+            batch_summary = torch.cat(summaries, dim=0)
+            
+            if self._output_processor is not None:
+                return self._output_processor(
+                    batch_summary, original_sizes, confidence_thresh=self.config.confidence_thresh
+                )
+            
+            return [batch_summary[i].detach().cpu().numpy() for i in range(len(imgs))]
+        
         elif self.config.output_type == "spatial":
-            output = batch_spatial
+            # Spatial features have variable H×W, process individually
+            if self._output_processor is not None:
+                results = []
+                for i, spatial in enumerate(spatial_features_list):
+                    result = self._output_processor(
+                        spatial, [original_sizes[i]], confidence_thresh=self.config.confidence_thresh
+                    )
+                    results.append(result[0])
+                return results
+            
+            return [spatial.squeeze(0).detach().cpu().numpy() for spatial in spatial_features_list]
+        
         else:
             raise ValueError(f"Unknown output_type: {self.config.output_type}")
-        
-        # Process output if we have an output processor
-        if self._output_processor is not None:
-            return self._output_processor(
-                output, original_sizes, confidence_thresh=self.config.confidence_thresh
-            )
-        
-        # Return raw features as numpy arrays for embeddings
-        return [output[i].detach().cpu().numpy() for i in range(len(imgs))]
 
 class RadioOutputProcessor(fout.OutputProcessor):
     """Output processor for RADIO models that handles embeddings output."""
