@@ -233,10 +233,12 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         Returns:
             List of predictions (embeddings or heatmaps depending on config)
         """
+        import torch.nn.functional as F
+        
         # Store original image sizes for output processing
         original_sizes = [img.size for img in imgs]  # PIL Image.size is (width, height)
         
-        # Process each image individually (CLIPImageProcessor handles resizing)
+        # Process each image individually
         summaries = []
         spatial_features_list = []
         
@@ -248,6 +250,18 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
                 do_resize=True
             ).pixel_values
             pixel_values = pixel_values.to(self._device)
+            
+            # Resize to nearest RADIO-supported resolution
+            # RADIO requires input resolution to be a multiple of min_resolution_step
+            h, w = pixel_values.shape[-2:]
+            nearest_res = self._radio_model.get_nearest_supported_resolution(h, w)
+            if (h, w) != (nearest_res.height, nearest_res.width):
+                pixel_values = F.interpolate(
+                    pixel_values, 
+                    size=(nearest_res.height, nearest_res.width), 
+                    mode='bilinear', 
+                    align_corners=False
+                )
             
             # Forward pass with optional mixed precision
             if self.config.use_mixed_precision and self._mixed_precision_supported and self._using_gpu:
