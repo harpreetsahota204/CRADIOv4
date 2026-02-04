@@ -88,6 +88,16 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         
         # Check mixed precision support
         self._mixed_precision_supported = self._check_mixed_precision_support()
+
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args):
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        return False
     
     def _load_model(self, config):
         """Load model and image processor from Hugging Face.
