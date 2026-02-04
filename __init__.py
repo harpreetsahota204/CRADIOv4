@@ -35,10 +35,16 @@ def download_model(model_name, model_path):
     
     logger.info(f"Downloading C-RADIOv4 model from Hugging Face: {hf_repo}")
     
-    # Download model files to local directory without loading into memory
-    snapshot_download(repo_id=hf_repo, local_dir=model_path)
+    # Download to HuggingFace cache (no local_dir) because trust_remote_code=True
+    # models need the Python code files in the HF modules cache
+    snapshot_download(repo_id=hf_repo)
     
-    logger.info(f"C-RADIOv4 model {hf_repo} downloaded to {model_path}")
+    # Write marker file with repo info for load_model to use
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    with open(model_path, 'w') as f:
+        f.write(f"hf_repo={hf_repo}\n")
+    
+    logger.info(f"C-RADIOv4 model {hf_repo} downloaded and cached")
 
 
 def load_model(
@@ -47,7 +53,7 @@ def load_model(
     output_type="summary",
     **kwargs
 ):
-    """Loads the C-RADIOv4 model from local path.
+    """Loads the C-RADIOv4 model from HuggingFace cache.
     
     Args:
         model_name: the name of the model to load, as declared by the
@@ -65,8 +71,12 @@ def load_model(
         raise ValueError(f"Unsupported model name '{model_name}'. "
                         f"Supported models: {list(MODEL_VARIANTS.keys())}")
     
+    # Read hf_repo from marker file written by download_model
+    model_info = MODEL_VARIANTS[model_name]
+    hf_repo = model_info["hf_repo"]
+    
     config_dict = {
-        "model_path": model_path,  # Use local path from snapshot_download
+        "hf_repo": hf_repo,  # Use HF repo name to load from cache
         "output_type": output_type,
         "raw_inputs": True,  # We handle preprocessing ourselves
         **kwargs
