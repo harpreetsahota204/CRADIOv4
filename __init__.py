@@ -16,7 +16,7 @@ MODEL_VARIANTS = {
 }
 
 def download_model(model_name, model_path):
-    """Downloads the model from Hugging Face.
+    """Downloads the C-RADIOv4 model from Hugging Face.
     
     Args:
         model_name: the name of the model to download, as declared by the
@@ -28,27 +28,17 @@ def download_model(model_name, model_path):
         raise ValueError(f"Unsupported model name '{model_name}'. "
                         f"Supported models: {list(MODEL_VARIANTS.keys())}")
     
-    from transformers import AutoModel, CLIPImageProcessor
+    from huggingface_hub import snapshot_download
     
     model_info = MODEL_VARIANTS[model_name]
     hf_repo = model_info["hf_repo"]
     
-    # Ensure the directory exists
-    os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    
     logger.info(f"Downloading C-RADIOv4 model from Hugging Face: {hf_repo}")
     
-    # Download model and processor from Hugging Face
-    # This caches them in the HF cache directory
-    CLIPImageProcessor.from_pretrained(hf_repo)
-    AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
+    # Download model files to local directory without loading into memory
+    snapshot_download(repo_id=hf_repo, local_dir=model_path)
     
-    # Write a marker file to indicate the model is downloaded
-    # The actual model weights are cached by Hugging Face
-    with open(model_path, 'w') as f:
-        f.write(f"hf_repo={hf_repo}\n")
-    
-    logger.info(f"C-RADIOv4 model {hf_repo} downloaded and cached")
+    logger.info(f"C-RADIOv4 model {hf_repo} downloaded to {model_path}")
 
 
 def load_model(
@@ -57,7 +47,7 @@ def load_model(
     output_type="summary",
     **kwargs
 ):
-    """Loads the model from Hugging Face.
+    """Loads the C-RADIOv4 model from local path.
     
     Args:
         model_name: the name of the model to load, as declared by the
@@ -75,11 +65,8 @@ def load_model(
         raise ValueError(f"Unsupported model name '{model_name}'. "
                         f"Supported models: {list(MODEL_VARIANTS.keys())}")
     
-    model_info = MODEL_VARIANTS[model_name]
-    hf_repo = model_info["hf_repo"]
-    
     config_dict = {
-        "hf_repo": hf_repo,
+        "model_path": model_path,  # Use local path from snapshot_download
         "output_type": output_type,
         "raw_inputs": True,  # We handle preprocessing ourselves
         **kwargs
