@@ -48,7 +48,7 @@ class TorchRadioModelConfig(fout.TorchImageModelConfig):
     """Configuration for running a :class:`TorchRadioModel`.
 
     Args:
-        model_path: Local path to the downloaded model
+        hf_repo: HuggingFace repository name (e.g., "nvidia/C-RADIOv4-H")
         output_type: what to return - "summary" or "spatial"
         use_mixed_precision: whether to use bfloat16 mixed precision
         apply_smoothing: whether to apply Gaussian smoothing to heatmaps
@@ -58,7 +58,7 @@ class TorchRadioModelConfig(fout.TorchImageModelConfig):
     def __init__(self, d):
         super().__init__(d)
 
-        self.model_path = self.parse_string(d, "model_path")
+        self.hf_repo = self.parse_string(d, "hf_repo", default="nvidia/C-RADIOv4-H")
         self.output_type = self.parse_string(d, "output_type", default="summary")
         self.use_mixed_precision = self.parse_bool(d, "use_mixed_precision", default=True)
         self.apply_smoothing = self.parse_bool(d, "apply_smoothing", default=True)
@@ -100,17 +100,21 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         return False
     
     def _load_model(self, config):
-        """Load model and image processor from local path.
+        """Load model and image processor from HuggingFace cache.
         
         Called by TorchImageModel.__init__(). We also load the image processor here.
+        
+        Note: C-RADIOv4 uses trust_remote_code=True which requires loading via
+        the HF repo name (not a local path) so transformers can find the Python
+        code in its modules cache.
         """
         from transformers import AutoModel, CLIPImageProcessor
         
-        model_path = config.model_path
-        logger.info(f"Loading C-RADIOv4 model from: {model_path}")
+        hf_repo = config.hf_repo
+        logger.info(f"Loading C-RADIOv4 model from HuggingFace: {hf_repo}")
         
-        self._image_processor = CLIPImageProcessor.from_pretrained(model_path, local_files_only=True)
-        model = AutoModel.from_pretrained(model_path, trust_remote_code=True, local_files_only=True)
+        self._image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
+        model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
         return model
 
     # ============ FROM Model BASE CLASS ============

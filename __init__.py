@@ -18,6 +18,10 @@ MODEL_VARIANTS = {
 def download_model(model_name, model_path):
     """Downloads the C-RADIOv4 model from Hugging Face.
     
+    Note: C-RADIOv4 uses trust_remote_code=True which requires the Python code
+    to be in HuggingFace's modules cache. We download to HF's default cache
+    (not a custom local_dir) and write a marker file for FiftyOne.
+    
     Args:
         model_name: the name of the model to download, as declared by the
             ``base_name`` and optional ``version`` fields of the manifest
@@ -35,9 +39,15 @@ def download_model(model_name, model_path):
     
     logger.info(f"Downloading C-RADIOv4 model from Hugging Face: {hf_repo}")
     
-    snapshot_download(repo_id=hf_repo, local_dir=model_path)
+    # Download to HF's default cache (required for trust_remote_code models)
+    snapshot_download(repo_id=hf_repo)
     
-    logger.info(f"C-RADIOv4 model {hf_repo} downloaded to {model_path}")
+    # Write marker file so FiftyOne knows the model is downloaded
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    with open(model_path, 'w') as f:
+        f.write(f"hf_repo={hf_repo}\n")
+    
+    logger.info(f"C-RADIOv4 model {hf_repo} downloaded and cached")
 
 
 def load_model(
@@ -46,7 +56,7 @@ def load_model(
     output_type="summary",
     **kwargs
 ):
-    """Loads the C-RADIOv4 model from local path.
+    """Loads the C-RADIOv4 model from HuggingFace cache.
     
     Args:
         model_name: the name of the model to load, as declared by the
@@ -64,14 +74,11 @@ def load_model(
         raise ValueError(f"Unsupported model name '{model_name}'. "
                         f"Supported models: {list(MODEL_VARIANTS.keys())}")
     
-    if not model_path or not os.path.isdir(model_path):
-        raise ValueError(
-            f"Invalid model_path: '{model_path}'. Please ensure the model has been downloaded "
-            "using fiftyone.zoo.download_zoo_model(...)"
-        )
+    model_info = MODEL_VARIANTS[model_name]
+    hf_repo = model_info["hf_repo"]
     
     config_dict = {
-        "model_path": model_path,
+        "hf_repo": hf_repo,
         "output_type": output_type,
         "raw_inputs": True,  # We handle preprocessing ourselves
         **kwargs
