@@ -109,8 +109,8 @@ class TorchRadioModel(fout.TorchImageModel, SupportsGetItem, TorchModelMixin):
         model_path = config.model_path
         logger.info(f"Loading C-RADIOv4 model from: {model_path}")
         
-        self._image_processor = CLIPImageProcessor.from_pretrained(model_path)
-        model = AutoModel.from_pretrained(model_path, trust_remote_code=True)
+        self._image_processor = CLIPImageProcessor.from_pretrained(model_path, local_files_only=True)
+        model = AutoModel.from_pretrained(model_path, trust_remote_code=True, local_files_only=True)
         return model
 
     # ============ FROM Model BASE CLASS ============
