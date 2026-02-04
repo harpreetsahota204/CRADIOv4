@@ -15,7 +15,7 @@
             ],
             "date_added": "2026-02-03",
             "requirements": {
-                "packages": ["torch", "torchvision", "transformers", "timm"],
+                "packages": ["torch", "torchvision", "transformers", "timm", "open-clip-torch"],
                 "cpu": {
                     "support": true
                 },
@@ -37,7 +37,7 @@
             ],
             "date_added": "2026-02-03",
             "requirements": {
-                "packages": ["torch", "torchvision", "transformers", "timm"],
+                "packages": ["torch", "torchvision", "transformers", "timm", "open-clip-torch"],
                 "cpu": {
                     "support": true
                 },
