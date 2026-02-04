@@ -35,16 +35,9 @@ def download_model(model_name, model_path):
     
     logger.info(f"Downloading C-RADIOv4 model from Hugging Face: {hf_repo}")
     
-    # Download to HuggingFace cache (no local_dir) because trust_remote_code=True
-    # models need the Python code files in the HF modules cache
-    snapshot_download(repo_id=hf_repo)
+    snapshot_download(repo_id=hf_repo, local_dir=model_path)
     
-    # Write marker file with repo info for load_model to use
-    os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    with open(model_path, 'w') as f:
-        f.write(f"hf_repo={hf_repo}\n")
-    
-    logger.info(f"C-RADIOv4 model {hf_repo} downloaded and cached")
+    logger.info(f"C-RADIOv4 model {hf_repo} downloaded to {model_path}")
 
 
 def load_model(
@@ -53,7 +46,7 @@ def load_model(
     output_type="summary",
     **kwargs
 ):
-    """Loads the C-RADIOv4 model from HuggingFace cache.
+    """Loads the C-RADIOv4 model from local path.
     
     Args:
         model_name: the name of the model to load, as declared by the
@@ -71,12 +64,14 @@ def load_model(
         raise ValueError(f"Unsupported model name '{model_name}'. "
                         f"Supported models: {list(MODEL_VARIANTS.keys())}")
     
-    # Read hf_repo from marker file written by download_model
-    model_info = MODEL_VARIANTS[model_name]
-    hf_repo = model_info["hf_repo"]
+    if not model_path or not os.path.isdir(model_path):
+        raise ValueError(
+            f"Invalid model_path: '{model_path}'. Please ensure the model has been downloaded "
+            "using fiftyone.zoo.download_zoo_model(...)"
+        )
     
     config_dict = {
-        "hf_repo": hf_repo,  # Use HF repo name to load from cache
+        "model_path": model_path,
         "output_type": output_type,
         "raw_inputs": True,  # We handle preprocessing ourselves
         **kwargs
